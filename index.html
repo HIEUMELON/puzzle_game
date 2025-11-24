@@ -2,25 +2,24 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <title>Puzzle</title>
+  <title>Game puzzle</title>
   <style>
     body {
       background: #222;
       color: #fff;
       font-family: sans-serif;
       text-align: center;
+      margin: 0;
+      padding: 20px 0;
     }
     #puzzle {
-      /* bỏ viền trắng ngoài */
       border: none;
       cursor: pointer;
-      margin-top: 20px;
       max-width: 100%;
       touch-action: none;
       background: #222;
       display: block;
-      margin-left: auto;
-      margin-right: auto;
+      margin: 10px auto 0 auto;
     }
     #info {
       margin-top: 10px;
@@ -35,15 +34,24 @@
   <div id="info"></div>
 
   <script>
-    const ROWS = 5;
-    const COLS = 7;
+    const ROWS = 6;
+    const COLS = 8;
 
     const canvas = document.getElementById('puzzle');
     const ctx = canvas.getContext('2d');
     const info = document.getElementById('info');
 
-    const img = new Image();
-    img.src = 'puzzle.jpg';
+    // ảnh puzzle và ảnh khung
+    const puzzleImg = new Image();
+    const frameImg  = new Image();
+    puzzleImg.src = 'puzzle.jpg';
+    frameImg.src  = 'f1.png'; // khung gỗ của bạn
+
+    // VÙNG TRẮNG BÊN TRONG KHUNG (bạn đo từ Photopea)
+    const FRAME_INNER_X = 99;
+    const FRAME_INNER_Y = 96;
+    const FRAME_INNER_W = 868;
+    const FRAME_INNER_H = 602;
 
     let tileW, tileH;
     let pieces = [];
@@ -56,6 +64,8 @@
     let boardCanvas, boardCtx;
     let boardWidth, boardHeight;
     let boardOffsetX, boardOffsetY;
+
+    let frameWidth, frameHeight;
 
     let trayStartX, trayStartY;
     let trayCols, trayRows;
@@ -180,57 +190,14 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // === Frame ===
-      // Thickness frame
-      const frameThickness = Math.max(25, Math.min(tileW, tileH) * 1.1);
+      // vẽ khung
+      ctx.drawImage(
+        frameImg,
+        0, 0, frameImg.width, frameImg.height,
+        0, 0, frameWidth, frameHeight
+      );
 
-      const outerX = boardOffsetX - frameThickness;
-      const outerY = boardOffsetY - frameThickness;
-      const outerW = boardWidth + frameThickness * 2;
-      const outerH = boardHeight + frameThickness * 2;
-
-      // Gradient outer frame
-      const outerGrad = ctx.createLinearGradient(outerX, outerY, outerX + outerW, outerY + outerH);
-      outerGrad.addColorStop(0,   '#7b4a1c');
-      outerGrad.addColorStop(0.4, '#c69345');
-      outerGrad.addColorStop(0.6, '#e0b96a');
-      outerGrad.addColorStop(1,   '#7b4a1c');
-
-      ctx.save();
-      // Outter frame
-      ctx.fillStyle = outerGrad;
-      ctx.fillRect(outerX, outerY, outerW, outerH);
-      ctx.strokeStyle = '#5a3415';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(outerX + 1, outerY + 1, outerW - 2, outerH - 2);
-
-      // Inner frame
-      const inner1Thickness = frameThickness * 0.35;
-      const inner1X = boardOffsetX - inner1Thickness;
-      const inner1Y = boardOffsetY - inner1Thickness;
-      const inner1W = boardWidth + inner1Thickness * 2;
-      const inner1H = boardHeight + inner1Thickness * 2;
-
-      const innerGrad = ctx.createLinearGradient(inner1X, inner1Y, inner1X + inner1W, inner1Y);
-      innerGrad.addColorStop(0, '#d4a75a');
-      innerGrad.addColorStop(0.5, '#f1d08a');
-      innerGrad.addColorStop(1, '#d4a75a');
-
-      ctx.fillStyle = innerGrad;
-      ctx.fillRect(inner1X, inner1Y, inner1W, inner1H);
-      ctx.strokeStyle = '#8a5b1e';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(inner1X + 1, inner1Y + 1, inner1W - 2, inner1H - 2);
-
-      // Inner board background
-      ctx.fillStyle = '#303030';
-      ctx.fillRect(boardOffsetX, boardOffsetY, boardWidth, boardHeight);
-      ctx.strokeStyle = '#1e1e1e';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(boardOffsetX, boardOffsetY, boardWidth, boardHeight);
-      ctx.restore();
-
-      // Tray border
+      // khay mảnh
       ctx.save();
       ctx.strokeStyle = '#555';
       ctx.lineWidth = 1.5;
@@ -239,7 +206,7 @@
       ctx.strokeRect(trayStartX, trayStartY, trayWidth, trayHeight);
       ctx.restore();
 
-      // Pieces
+      // mảnh
       pieces.forEach((p, index) => {
         ctx.save();
         ctx.translate(p.x, p.y);
@@ -346,52 +313,76 @@
       draw();
     });
 
-    img.onload = function () {
-      const maxBoardWidth = 900;
-      const scale = Math.min(maxBoardWidth / img.width, 1);
-      boardWidth  = img.width * scale;
-      boardHeight = img.height * scale;
+    // đợi cả 2 ảnh load xong rồi mới start
+    let loadedCount = 0;
+    function handleImageLoaded() {
+      loadedCount++;
+      if (loadedCount === 2) startGame();
+    }
+    puzzleImg.onload = handleImageLoaded;
+    frameImg.onload  = handleImageLoaded;
 
-      const marginTop  = boardHeight * 0.08;
-      const marginSide = boardWidth  * 0.15;
+    function startGame() {
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1024;
+
+      // scale khung vừa với màn hình
+      const maxFrameWidth = Math.min(viewportWidth * 0.9, 1200);
+      const frameScale = Math.min(maxFrameWidth / frameImg.width, 1);
+      frameWidth  = frameImg.width  * frameScale;
+      frameHeight = frameImg.height * frameScale;
+
+      // vùng trắng bên trong khung sau khi scale
+      const innerX = FRAME_INNER_X * frameScale;
+      const innerY = FRAME_INNER_Y * frameScale;
+      const innerW = FRAME_INNER_W * frameScale;
+      const innerH = FRAME_INNER_H * frameScale;
+
+      // scale tranh để lọt vừa vùng trắng
+      const puzzleScale = Math.min(
+        innerW / puzzleImg.width,
+        innerH / puzzleImg.height
+      );
+      boardWidth  = puzzleImg.width  * puzzleScale;
+      boardHeight = puzzleImg.height * puzzleScale;
+
+      // căn giữa tranh trong vùng trắng
+      boardOffsetX = innerX + (innerW - boardWidth) / 2;
+      boardOffsetY = innerY + (innerH - boardHeight) / 2;
 
       tileW = boardWidth / COLS;
       tileH = boardHeight / ROWS;
-
-      trayCols = Math.max(1, Math.floor((boardWidth + trayGapX) / (tileW + trayGapX)));
-      trayCols = Math.min(trayCols, COLS);
-      trayRows = Math.ceil((ROWS * COLS) / trayCols);
-
-      const trayHeight = trayRows * (tileH + trayGapY) - trayGapY;
-
-      canvas.width  = boardWidth + marginSide * 2;
-      canvas.height = marginTop + boardHeight + 30 + trayHeight + marginTop;
-
-      boardOffsetX = marginSide;
-      boardOffsetY = marginTop;
-
-      trayStartX = boardOffsetX;
-      trayStartY = boardOffsetY + boardHeight + 30;
-
       snapTolerance = Math.min(tileW, tileH) / 4;
 
+      // vẽ ảnh puzzle đã scale vào boardCanvas
       boardCanvas = document.createElement('canvas');
       boardCanvas.width  = boardWidth;
       boardCanvas.height = boardHeight;
       boardCtx = boardCanvas.getContext('2d');
       boardCtx.drawImage(
-        img,
-        0, 0, img.width, img.height,
+        puzzleImg,
+        0, 0, puzzleImg.width, puzzleImg.height,
         0, 0, boardWidth, boardHeight
       );
 
-      tileW = boardWidth / COLS;
-      tileH = boardHeight / ROWS;
+      // kích thước canvas & khay mảnh
+      canvas.width = frameWidth;
+
+      trayCols = Math.min(
+        COLS,
+        Math.max(1, Math.floor(canvas.width / (tileW + trayGapX)))
+      );
+      trayRows = Math.ceil((ROWS * COLS) / trayCols);
+      const trayHeight = trayRows * (tileH + trayGapY) - trayGapY;
+
+      canvas.height = frameHeight + 40 + trayHeight;
+
+      trayStartX = (canvas.width - (trayCols * (tileW + trayGapX) - trayGapX)) / 2;
+      trayStartY = frameHeight + 30;
 
       initPieces();
       layoutPiecesInTray();
       draw();
-    };
+    }
   </script>
 </body>
 </html>
