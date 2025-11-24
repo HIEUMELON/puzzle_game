@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Puzzle</title>
+  <style>
+    body {
+      background: #222;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    #puzzle {
+      /* bỏ viền trắng ngoài */
+      border: none;
+      cursor: pointer;
+      margin-top: 20px;
+      max-width: 100%;
+      touch-action: none;
+      background: #222;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #info {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Game puzzle</h1>
+  <p>Enjoy the game</p>
+
+  <canvas id="puzzle"></canvas>
+  <div id="info"></div>
+
+  <script>
+    const ROWS = 5;
+    const COLS = 7;
+
+    const canvas = document.getElementById('puzzle');
+    const ctx = canvas.getContext('2d');
+    const info = document.getElementById('info');
+
+    const img = new Image();
+    img.src = 'puzzle.jpg';
+
+    let tileW, tileH;
+    let pieces = [];
+    let draggingIndex = null;
+    let draggingPiece = null;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let snapTolerance = 0;
+
+    let boardCanvas, boardCtx;
+    let boardWidth, boardHeight;
+    let boardOffsetX, boardOffsetY;
+
+    let trayStartX, trayStartY;
+    let trayCols, trayRows;
+    const trayGapX = 4;
+    const trayGapY = 4;
+
+    function createPiecePath(ctx, edges) {
+      const w = tileW;
+      const h = tileH;
+      const knob = Math.min(w, h) / 4;
+
+      ctx.moveTo(0, 0);
+
+      if (edges.top === 0) {
+        ctx.lineTo(w, 0);
+      } else {
+        const dir = edges.top;
+        const x1 = w / 3;
+        const x2 = w / 2;
+        const x3 = 2 * w / 3;
+        ctx.lineTo(x1, 0);
+        ctx.quadraticCurveTo(x2, -dir * knob, x3, 0);
+        ctx.lineTo(w, 0);
+      }
+
+      if (edges.right === 0) {
+        ctx.lineTo(w, h);
+      } else {
+        const dir = edges.right;
+        const y1 = h / 3;
+        const y2 = h / 2;
+        const y3 = 2 * h / 3;
+        ctx.lineTo(w, y1);
+        ctx.quadraticCurveTo(w + dir * knob, y2, w, y3);
+        ctx.lineTo(w, h);
+      }
+
+      if (edges.bottom === 0) {
+        ctx.lineTo(0, h);
+      } else {
+        const dir = edges.bottom;
+        const x3 = 2 * w / 3;
+        const x2 = w / 2;
+        const x1 = w / 3;
+        ctx.lineTo(x3, h);
+        ctx.quadraticCurveTo(x2, h + dir * knob, x1, h);
+        ctx.lineTo(0, h);
+      }
+
+      if (edges.left === 0) {
+        ctx.lineTo(0, 0);
+      } else {
+        const dir = edges.left;
+        const y3 = 2 * h / 3;
+        const y2 = h / 2;
+        const y1 = h / 3;
+        ctx.lineTo(0, y3);
+        ctx.quadraticCurveTo(-dir * knob, y2, 0, y1);
+        ctx.lineTo(0, 0);
+      }
+
+      ctx.closePath();
+    }
+
+    function initPieces() {
+      pieces = [];
+      const grid = [];
+
+      for (let row = 0; row < ROWS; row++) {
+        grid[row] = [];
+        for (let col = 0; col < COLS; col++) {
+          const correctX = boardOffsetX + col * tileW;
+          const correctY = boardOffsetY + row * tileH;
+
+          let top, left, right, bottom;
+
+          if (row === 0) top = 0;
+          else top = -grid[row - 1][col].edges.bottom;
+
+          if (col === 0) left = 0;
+          else left = -grid[row][col - 1].edges.right;
+
+          if (col === COLS - 1) right = 0;
+          else right = Math.random() > 0.5 ? 1 : -1;
+
+          if (row === ROWS - 1) bottom = 0;
+          else bottom = Math.random() > 0.5 ? 1 : -1;
+
+          const piece = {
+            correctX,
+            correctY,
+            x: correctX,
+            y: correctY,
+            edges: { top, right, bottom, left },
+            locked: false
+          };
+          grid[row][col] = piece;
+        }
+      }
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          pieces.push(grid[r][c]);
+        }
+      }
+    }
+
+    function layoutPiecesInTray() {
+      for (let i = pieces.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+      }
+
+      pieces.forEach((p, idx) => {
+        const r = Math.floor(idx / trayCols);
+        const c = idx % trayCols;
+        p.x = trayStartX + c * (tileW + trayGapX);
+        p.y = trayStartY + r * (tileH + trayGapY);
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // === Frame ===
+      // Thickness frame
+      const frameThickness = Math.max(25, Math.min(tileW, tileH) * 1.1);
+
+      const outerX = boardOffsetX - frameThickness;
+      const outerY = boardOffsetY - frameThickness;
+      const outerW = boardWidth + frameThickness * 2;
+      const outerH = boardHeight + frameThickness * 2;
+
+      // Gradient outer frame
+      const outerGrad = ctx.createLinearGradient(outerX, outerY, outerX + outerW, outerY + outerH);
+      outerGrad.addColorStop(0,   '#7b4a1c');
+      outerGrad.addColorStop(0.4, '#c69345');
+      outerGrad.addColorStop(0.6, '#e0b96a');
+      outerGrad.addColorStop(1,   '#7b4a1c');
+
+      ctx.save();
+      // Outter frame
+      ctx.fillStyle = outerGrad;
+      ctx.fillRect(outerX, outerY, outerW, outerH);
+      ctx.strokeStyle = '#5a3415';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(outerX + 1, outerY + 1, outerW - 2, outerH - 2);
+
+      // Inner frame
+      const inner1Thickness = frameThickness * 0.35;
+      const inner1X = boardOffsetX - inner1Thickness;
+      const inner1Y = boardOffsetY - inner1Thickness;
+      const inner1W = boardWidth + inner1Thickness * 2;
+      const inner1H = boardHeight + inner1Thickness * 2;
+
+      const innerGrad = ctx.createLinearGradient(inner1X, inner1Y, inner1X + inner1W, inner1Y);
+      innerGrad.addColorStop(0, '#d4a75a');
+      innerGrad.addColorStop(0.5, '#f1d08a');
+      innerGrad.addColorStop(1, '#d4a75a');
+
+      ctx.fillStyle = innerGrad;
+      ctx.fillRect(inner1X, inner1Y, inner1W, inner1H);
+      ctx.strokeStyle = '#8a5b1e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(inner1X + 1, inner1Y + 1, inner1W - 2, inner1H - 2);
+
+      // Inner board background
+      ctx.fillStyle = '#303030';
+      ctx.fillRect(boardOffsetX, boardOffsetY, boardWidth, boardHeight);
+      ctx.strokeStyle = '#1e1e1e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(boardOffsetX, boardOffsetY, boardWidth, boardHeight);
+      ctx.restore();
+
+      // Tray border
+      ctx.save();
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1.5;
+      const trayWidth = trayCols * (tileW + trayGapX) - trayGapX;
+      const trayHeight = trayRows * (tileH + trayGapY) - trayGapY;
+      ctx.strokeRect(trayStartX, trayStartY, trayWidth, trayHeight);
+      ctx.restore();
+
+      // Pieces
+      pieces.forEach((p, index) => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+
+        ctx.beginPath();
+        createPiecePath(ctx, p.edges);
+        ctx.clip();
+
+        ctx.drawImage(
+          boardCanvas,
+          boardOffsetX - p.correctX,
+          boardOffsetY - p.correctY
+        );
+
+        ctx.strokeStyle = p.locked ? '#2b2b2b' : '#3a3a3a';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        if (index === draggingIndex) {
+          ctx.strokeStyle = '#d8c16a';
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      });
+    }
+
+    function getRelativePos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
+    function getPieceIndexAt(x, y) {
+      for (let i = pieces.length - 1; i >= 0; i--) {
+        const p = pieces[i];
+        if (p.locked) continue;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.beginPath();
+        createPiecePath(ctx, p.edges);
+        const hit = ctx.isPointInPath(x, y);
+        ctx.restore();
+        if (hit) return i;
+      }
+      return -1;
+    }
+
+    function checkSolved() {
+      return pieces.every(p => p.locked);
+    }
+
+    canvas.addEventListener('pointerdown', e => {
+      const pos = getRelativePos(e);
+      const idx = getPieceIndexAt(pos.x, pos.y);
+      if (idx === -1) return;
+
+      draggingIndex = idx;
+      draggingPiece = pieces[idx];
+
+      pieces.splice(idx, 1);
+      pieces.push(draggingPiece);
+      draggingIndex = pieces.length - 1;
+
+      dragOffsetX = pos.x - draggingPiece.x;
+      dragOffsetY = pos.y - draggingPiece.y;
+
+      canvas.setPointerCapture(e.pointerId);
+      draw();
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      if (!draggingPiece) return;
+      const pos = getRelativePos(e);
+      draggingPiece.x = pos.x - dragOffsetX;
+      draggingPiece.y = pos.y - dragOffsetY;
+      draw();
+    });
+
+    canvas.addEventListener('pointerup', e => {
+      if (!draggingPiece) return;
+
+      const dx = draggingPiece.x - draggingPiece.correctX;
+      const dy = draggingPiece.y - draggingPiece.correctY;
+      if (Math.abs(dx) < snapTolerance && Math.abs(dy) < snapTolerance) {
+        draggingPiece.x = draggingPiece.correctX;
+        draggingPiece.y = draggingPiece.correctY;
+        draggingPiece.locked = true;
+      }
+
+      draggingPiece = null;
+      draggingIndex = null;
+      canvas.releasePointerCapture(e.pointerId);
+
+      if (checkSolved()) {
+        info.textContent = 'Hoàn thành! 🎉';
+      } else {
+        info.textContent = '';
+      }
+      draw();
+    });
+
+    img.onload = function () {
+      const maxBoardWidth = 900;
+      const scale = Math.min(maxBoardWidth / img.width, 1);
+      boardWidth  = img.width * scale;
+      boardHeight = img.height * scale;
+
+      const marginTop  = boardHeight * 0.08;
+      const marginSide = boardWidth  * 0.15;
+
+      tileW = boardWidth / COLS;
+      tileH = boardHeight / ROWS;
+
+      trayCols = Math.max(1, Math.floor((boardWidth + trayGapX) / (tileW + trayGapX)));
+      trayCols = Math.min(trayCols, COLS);
+      trayRows = Math.ceil((ROWS * COLS) / trayCols);
+
+      const trayHeight = trayRows * (tileH + trayGapY) - trayGapY;
+
+      canvas.width  = boardWidth + marginSide * 2;
+      canvas.height = marginTop + boardHeight + 30 + trayHeight + marginTop;
+
+      boardOffsetX = marginSide;
+      boardOffsetY = marginTop;
+
+      trayStartX = boardOffsetX;
+      trayStartY = boardOffsetY + boardHeight + 30;
+
+      snapTolerance = Math.min(tileW, tileH) / 4;
+
+      boardCanvas = document.createElement('canvas');
+      boardCanvas.width  = boardWidth;
+      boardCanvas.height = boardHeight;
+      boardCtx = boardCanvas.getContext('2d');
+      boardCtx.drawImage(
+        img,
+        0, 0, img.width, img.height,
+        0, 0, boardWidth, boardHeight
+      );
+
+      tileW = boardWidth / COLS;
+      tileH = boardHeight / ROWS;
+
+      initPieces();
+      layoutPiecesInTray();
+      draw();
+    };
+  </script>
+</body>
+</html>
